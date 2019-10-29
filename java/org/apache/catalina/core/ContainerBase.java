@@ -186,6 +186,7 @@ public abstract class ContainerBase extends LifecycleMBeanBase
 
     /**
      * The Loader implementation with which this Container is associated.
+     * 与容器相关联的类加载器实现
      */
     protected Loader loader = null;
     private final ReadWriteLock loaderLock = new ReentrantReadWriteLock();
@@ -413,6 +414,7 @@ public abstract class ContainerBase extends LifecycleMBeanBase
      * Provide access to just the loader component attached to this container.
      */
     protected Loader getLoaderInternal() {
+        // 使用读锁，可以支持多个线程同时读取同一个loader
         Lock readLock = loaderLock.readLock();
         readLock.lock();
         try {
@@ -430,6 +432,7 @@ public abstract class ContainerBase extends LifecycleMBeanBase
      */
     @Override
     public void setLoader(Loader loader) {
+        // 使用写锁，在同一个时间只能支持某一个线程来设置loader
         Lock writeLock = loaderLock.writeLock();
         writeLock.lock();
         Loader oldLoader = null;
@@ -441,6 +444,7 @@ public abstract class ContainerBase extends LifecycleMBeanBase
             this.loader = loader;
 
             // Stop the old component if necessary
+            // 把老的loader停止掉
             if (getState().isAvailable() && (oldLoader != null) &&
                     (oldLoader instanceof Lifecycle)) {
                 try {
@@ -451,6 +455,7 @@ public abstract class ContainerBase extends LifecycleMBeanBase
             }
 
             // Start the new component if necessary
+            // 设置loader对应的容器，启动loader
             if (loader != null)
                 loader.setContainer(this);
             if (getState().isAvailable() && (loader != null) &&
@@ -466,6 +471,7 @@ public abstract class ContainerBase extends LifecycleMBeanBase
         }
 
         // Report this property change to interested listeners
+        // 发布属性改变事件
         support.firePropertyChange("loader", oldLoader, loader);
 
     }
@@ -1196,11 +1202,17 @@ public abstract class ContainerBase extends LifecycleMBeanBase
     protected synchronized void startInternal() throws LifecycleException {
 
         // Start our subordinate components, if any
+        // 启动下级组件，如果有的话
+
+        // 容器的类加载器
         Loader loader = getLoaderInternal();
         if ((loader != null) && (loader instanceof Lifecycle))
             ((Lifecycle) loader).start();
+
+        // 容器的日志
         logger = null;
         getLogger();
+
         Manager manager = getManagerInternal();
         if ((manager != null) && (manager instanceof Lifecycle))
             ((Lifecycle) manager).start();
