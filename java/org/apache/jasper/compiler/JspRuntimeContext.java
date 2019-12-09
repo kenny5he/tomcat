@@ -254,6 +254,7 @@ public final class JspRuntimeContext {
         }
         FastRemovalDequeue<JspServletWrapper>.Entry entry = jspQueue.push(jsw);
         JspServletWrapper replaced = entry.getReplaced();
+        // 如果队尾元素被顶替，则replace!=null，则需要卸载replaced所对应的jsw
         if (replaced != null) {
             if (log.isDebugEnabled()) {
                 log.debug(Localizer.getMessage("jsp.message.jsp_removed_excess",
@@ -476,9 +477,12 @@ public final class JspRuntimeContext {
      * @return the compilation classpath
      */
     private String initClassPath() {
+        // 初始化jsp能使用的classpath
+        // 当前应用的WebappClassLoader所能加载的url（就是web-inf/classes和lib下的） +
 
         StringBuilder cpath = new StringBuilder();
 
+        // parentClassLoader默认情况下就是当前应用的WebappClassLoader
         if (parentClassLoader instanceof URLClassLoader) {
             URL [] urls = ((URLClassLoader)parentClassLoader).getURLs();
 
@@ -645,6 +649,7 @@ public final class JspRuntimeContext {
             for (int i = 0; i < wrappers.length; i++ ) {
                 JspServletWrapper jsw = (JspServletWrapper)wrappers[i];
                 synchronized(jsw) {
+                    // jsw以及超过jspIdleTimeout没有被调用过了，则要进行卸载
                     if (jsw.getLastUsageTime() < unloadBefore) {
                         if (log.isDebugEnabled()) {
                             log.debug(Localizer.getMessage("jsp.message.jsp_removed_idle",
