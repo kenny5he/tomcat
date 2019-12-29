@@ -573,12 +573,14 @@ public class Catalina {
 
         long t1 = System.nanoTime();
 
+        // 如果catalinaHome和catalinaBase是相对路径，那么在这里会转化为绝对路径
         initDirs();
 
         // Before digester - it may be needed
         initNaming();
 
         // Create and execute our Digester
+        // 初始化server.xml文件解析器
         Digester digester = createStartDigester();
 
         InputSource inputSource = null;
@@ -760,11 +762,10 @@ public class Catalina {
             }
         }
 
-        // 需要阻塞
+        // 是否需要阻塞，await标记是在通过Bootstrap类启动时设置为true的
         if (await) {
             await();  // 使用ServerSocket来监听shutdown命令来阻塞
-            // 如果阻塞被解开，那么就停止Catalina
-            stop();
+            stop();  // 如果阻塞被解开，那么开始停止流程
         }
     }
 
