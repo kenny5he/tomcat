@@ -196,6 +196,7 @@ public class StandardManager extends ManagerBase {
         sessions.clear();
 
         // Open an input stream to the specified pathname, if any
+        // 获取SESSIONS.ser文件
         File file = file();
         if (file == null) {
             return;
@@ -463,6 +464,7 @@ public class StandardManager extends ManagerBase {
         super.startInternal();
 
         // Load unloaded sessions, if any
+        // 将SESSIONS.ser加载到ConcurrentHashMap中
         try {
             load();
         } catch (Throwable t) {
@@ -491,6 +493,7 @@ public class StandardManager extends ManagerBase {
         setState(LifecycleState.STOPPING);
 
         // Write out sessions
+        // 将ConcurrentHashMap存入SESSIONS.ser文件中
         try {
             unload();
         } catch (Throwable t) {
