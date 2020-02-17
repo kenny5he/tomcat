@@ -20,6 +20,7 @@ import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.Socket;
+import java.nio.charset.Charset;
 
 import org.apache.coyote.InputBuffer;
 import org.apache.coyote.Request;
@@ -27,7 +28,6 @@ import org.apache.juli.logging.Log;
 import org.apache.juli.logging.LogFactory;
 import org.apache.tomcat.util.buf.ByteChunk;
 import org.apache.tomcat.util.buf.MessageBytes;
-import org.apache.tomcat.util.http.HeaderUtil;
 import org.apache.tomcat.util.http.parser.HttpParser;
 import org.apache.tomcat.util.net.AbstractEndpoint;
 import org.apache.tomcat.util.net.SocketWrapper;
@@ -53,15 +53,15 @@ public class InternalInputBuffer extends AbstractInputBuffer<Socket> {
      * Default constructor.
      */
     public InternalInputBuffer(Request request, int headerBufferSize,
-            boolean rejectIllegalHeader, HttpParser httpParser) {
+            boolean rejectIllegalHeaderName, HttpParser httpParser) {
 
         this.request = request;
         headers = request.getMimeHeaders();
 
-        // 请求头的缓冲区域大小，一个请求的请求头数据不能超过这个区域
+        // 请求头的缓冲区域大小，一个请求的请求头数据不能超过这个区域，默认为8192，也就是8*1024个字节=8kb
         buf = new byte[headerBufferSize];
 
-        this.rejectIllegalHeaderName = rejectIllegalHeader;
+        this.rejectIllegalHeaderName = rejectIllegalHeaderName;
         this.httpParser = httpParser;
 
         inputStreamInputBuffer = new InputStreamInputBuffer();
@@ -96,6 +96,7 @@ public class InternalInputBuffer extends AbstractInputBuffer<Socket> {
         // Skipping blank lines
         //
 
+        byte chr = 0;
         do {
             // 把buf里面的字符一个个取出来进行判断，遇到非回车换行符则会退出
 
@@ -111,7 +112,7 @@ public class InternalInputBuffer extends AbstractInputBuffer<Socket> {
                 request.setStartTime(System.currentTimeMillis());
             }
             chr = buf[pos++];
-        } while (chr == Constants.CR || chr == Constants.LF);
+        } while ((chr == Constants.CR) || (chr == Constants.LF));
 
         pos--;
 
@@ -179,33 +180,16 @@ public class InternalInputBuffer extends AbstractInputBuffer<Socket> {
                     throw new EOFException(sm.getString("iib.eof.error"));
             }
 
-            if (buf[pos -1] == Constants.CR && buf[pos] != Constants.LF) {
-                // CR not followed by LF so not an HTTP/0.9 request and
-                // therefore invalid. Trigger error handling.
-                // Avoid unknown protocol triggering an additional error
-                request.protocol().setString(Constants.HTTP_11);
-                throw new IllegalArgumentException(sm.getString("iib.invalidRequestTarget"));
-            }
-
             // Spec says single SP but it also says be tolerant of HT
             if (buf[pos] == Constants.SP || buf[pos] == Constants.HT) {
                 space = true;
                 end = pos;
-            } else if (buf[pos] == Constants.CR) {
-                // HTTP/0.9 style request. CR is optional. LF is not.
-            } else if (buf[pos] == Constants.LF) {
+            } else if ((buf[pos] == Constants.CR)
+                       || (buf[pos] == Constants.LF)) {
                 // HTTP/0.9 style request
-                // Stop this processing loop
-                space = true;
-                // Set blank protocol (indicates HTTP/0.9)
-                request.protocol().setString("");
-                // Skip the protocol processing
                 eol = true;
-                if (buf[pos - 1] == Constants.CR) {
-                    end = pos - 1;
-                } else {
-                    end = pos;
-                }
+                space = true;
+                end = pos;
             } else if ((buf[pos] == Constants.QUESTION) && (questionPos == -1)) {
                 questionPos = pos;
             } else if (questionPos != -1 && !httpParser.isQueryRelaxed(buf[pos])) {
@@ -217,8 +201,11 @@ public class InternalInputBuffer extends AbstractInputBuffer<Socket> {
                 // happen in AbstractHttp11Processor#prepareRequest()
                 throw new IllegalArgumentException(sm.getString("iib.invalidRequestTarget"));
             }
+
             pos++;
+
         }
+
         request.unparsedURI().setBytes(buf, start, end - start);
         if (questionPos >= 0) {
             request.queryString().setBytes(buf, questionPos + 1,
@@ -229,7 +216,7 @@ public class InternalInputBuffer extends AbstractInputBuffer<Socket> {
         }
 
         // Spec says single SP but also says be tolerant of multiple SP and/or HT
-        while (space && !eol) {
+        while (space) {
             // Read new bytes if needed
             if (pos >= lastValid) {
                 if (!fill())
@@ -259,9 +246,10 @@ public class InternalInputBuffer extends AbstractInputBuffer<Socket> {
             }
 
             if (buf[pos] == Constants.CR) {
-                // Possible end of request line. Need LF next.
-            } else if (buf[pos - 1] == Constants.CR && buf[pos] == Constants.LF) {
-                end = pos - 1;
+                end = pos;
+            } else if (buf[pos] == Constants.LF) {
+                if (end == 0)
+                    end = pos;
                 eol = true;
             } else if (!HttpParser.isHttpProtocol(buf[pos])) {
                 throw new IllegalArgumentException(sm.getString("iib.invalidHttpProtocol"));
@@ -273,13 +261,12 @@ public class InternalInputBuffer extends AbstractInputBuffer<Socket> {
 
         if ((end - start) > 0) {
             request.protocol().setBytes(buf, start, end - start);
-        }
-
-        if (request.protocol().isNull()) {
-            throw new IllegalArgumentException(sm.getString("iib.invalidHttpProtocol"));
+        } else {
+            request.protocol().setString("");
         }
 
         return true;
+
     }
 
 
@@ -311,8 +298,14 @@ public class InternalInputBuffer extends AbstractInputBuffer<Socket> {
      * HTTP header parsing is done
      */
     @SuppressWarnings("null") // headerValue cannot be null
-    private boolean parseHeader() throws IOException {
+    private boolean parseHeader()
+        throws IOException {
 
+        //
+        // Check for blank line
+        //
+
+        byte chr = 0;
         while (true) {
 
             // Read new bytes if needed
@@ -321,28 +314,24 @@ public class InternalInputBuffer extends AbstractInputBuffer<Socket> {
                     throw new EOFException(sm.getString("iib.eof.error"));
             }
 
-            prevChr = chr;
             chr = buf[pos];
 
-            if (chr == Constants.CR && prevChr != Constants.CR) {
-                // Possible start of CRLF - process the next byte.
-            } else if (prevChr == Constants.CR && chr == Constants.LF) {
+            if (chr == Constants.CR) { // 回车
+                // Skip
+            } else if (chr == Constants.LF) { // 换行
                 pos++;
                 return false;
+                // 在解析某一行时遇到一个回车换行了，则表示请求头的数据结束了
             } else {
-                if (prevChr == Constants.CR) {
-                    // Must have read two bytes (first was CR, second was not LF)
-                    pos--;
-                }
                 break;
             }
 
             pos++;
+
         }
 
         // Mark the current buffer position
         int start = pos;
-        int lineStart = start;
 
         //
         // Reading the header name
@@ -367,7 +356,7 @@ public class InternalInputBuffer extends AbstractInputBuffer<Socket> {
                 // Non-token characters are illegal in header names
                 // Parsing continues so the error can be reported in context
                 // skipLine() will handle the error
-                skipLine(lineStart, start);
+                skipLine(start);
                 return true;
             }
 
@@ -423,29 +412,15 @@ public class InternalInputBuffer extends AbstractInputBuffer<Socket> {
                         throw new EOFException(sm.getString("iib.eof.error"));
                 }
 
-                prevChr = chr;
-                chr = buf[pos];
-                if (chr == Constants.CR) {
-                    // Possible start of CRLF - process the next byte.
-                } else if (prevChr == Constants.CR && chr == Constants.LF) {
+                if (buf[pos] == Constants.CR) {
+                    // Skip
+                } else if (buf[pos] == Constants.LF) {
                     eol = true;
-                } else if (prevChr == Constants.CR) {
-                    // Invalid value
-                    // Delete the header (it will be the most recent one)
-                    headers.removeHeader(headers.size() - 1);
-                    skipLine(lineStart, start);
-                    return true;
-                } else if (chr != Constants.HT && HttpParser.isControl(chr)) {
-                    // Invalid value
-                    // Delete the header (it will be the most recent one)
-                    headers.removeHeader(headers.size() - 1);
-                    skipLine(lineStart, start);
-                    return true;
-                } else if (chr == Constants.SP) {
-                    buf[realPos] = chr;
+                } else if (buf[pos] == Constants.SP) {
+                    buf[realPos] = buf[pos];
                     realPos++;
                 } else {
-                    buf[realPos] = chr;
+                    buf[realPos] = buf[pos];
                     realPos++;
                     lastSignificantChar = realPos;
                 }
@@ -465,14 +440,14 @@ public class InternalInputBuffer extends AbstractInputBuffer<Socket> {
                     throw new EOFException(sm.getString("iib.eof.error"));
             }
 
-            byte peek = buf[pos];
-            if (peek != Constants.SP && peek != Constants.HT) {
+            chr = buf[pos];
+            if ((chr != Constants.SP) && (chr != Constants.HT)) {
                 validLine = false;
             } else {
                 eol = false;
                 // Copying one extra space in the buffer (since there must
                 // be at least one space inserted between the lines)
-                buf[realPos] = peek;
+                buf[realPos] = chr;
                 realPos++;
             }
 
@@ -504,7 +479,7 @@ public class InternalInputBuffer extends AbstractInputBuffer<Socket> {
 
 
 
-    private void skipLine(int lineStart, int start) throws IOException {
+    private void skipLine(int start) throws IOException {
         boolean eol = false;
         int lastRealByte = start;
         if (pos - 1 > start) {
@@ -519,12 +494,9 @@ public class InternalInputBuffer extends AbstractInputBuffer<Socket> {
                     throw new EOFException(sm.getString("iib.eof.error"));
             }
 
-            prevChr = chr;
-            chr = buf[pos];
-
-            if (chr == Constants.CR) {
+            if (buf[pos] == Constants.CR) {
                 // Skip
-            } else if (prevChr == Constants.CR && chr == Constants.LF) {
+            } else if (buf[pos] == Constants.LF) {
                 eol = true;
             } else {
                 lastRealByte = pos;
@@ -533,8 +505,8 @@ public class InternalInputBuffer extends AbstractInputBuffer<Socket> {
         }
 
         if (rejectIllegalHeaderName || log.isDebugEnabled()) {
-            String message = sm.getString("iib.invalidheader", HeaderUtil.toPrintableString(
-                    buf, lineStart, lastRealByte - lineStart + 1));
+            String message = sm.getString("iib.invalidheader", new String(buf, start,
+                    lastRealByte - start + 1, Charset.forName("ISO-8859-1")));
             if (rejectIllegalHeaderName) {
                 throw new IllegalArgumentException(message);
             }
@@ -572,7 +544,7 @@ public class InternalInputBuffer extends AbstractInputBuffer<Socket> {
             }
 
         } else {
-
+            // buf.length - end表示还能存放多少请求体数据，如果小于4500，那么就新生成一个byte数组
             if (buf.length - end < 4500) {
                 // In this case, the request header was really large, so we allocate a
                 // brand new one; the old one will get GCed when subsequent requests
@@ -612,6 +584,7 @@ public class InternalInputBuffer extends AbstractInputBuffer<Socket> {
         public int doRead(ByteChunk chunk, Request req )
             throws IOException {
 
+            // 如果buf中的数据都处理完了，则继续从底层获取数据
             if (pos >= lastValid) {
                 if (!fill())
                     return -1;
@@ -619,7 +592,10 @@ public class InternalInputBuffer extends AbstractInputBuffer<Socket> {
 
             int length = lastValid - pos;
             chunk.setBytes(buf, pos, length);
+            // 因为这里是读取请求体，在解析请求行，请求头时，pos是每解析一个字符就移动一下，
+            // 而这里不一样，这里只是负责把请求体的数据读出来即可，对于tomcat来说并不用这部分数据，所以直接把pos移动到lastValid位置
             pos = lastValid;
+
 
             return (length);
         }
