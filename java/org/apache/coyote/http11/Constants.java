@@ -151,7 +151,7 @@ public final class Constants {
     /**
      * Identity filters (input and output).
      */
-    public static final int IDENTITY_FILTER = 0;
+    public static final int IDENTITY_FILTER = 0; //
 
 
     /**
