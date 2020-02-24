@@ -296,10 +296,8 @@ public abstract class AbstractProtocol<S> implements ProtocolHandler,
 
     /**
      * The name will be prefix-address-port if address is non-null and
-     * prefix-port if the address is null.
-     *
-     * @return A name for this protocol instance that is appropriately quoted
-     *         for use in an ObjectName.
+     * prefix-port if the address is null. The name will be appropriately quoted
+     * so it can be used directly in an ObjectName.
      */
     public String getName() {
         StringBuilder name = new StringBuilder(getNamePrefix());
@@ -352,7 +350,6 @@ public abstract class AbstractProtocol<S> implements ProtocolHandler,
 
     /**
      * Obtain the handler associated with the underlying Endpoint
-     * @return the handler
      */
     protected abstract Handler getHandler();
 
@@ -618,7 +615,7 @@ public abstract class AbstractProtocol<S> implements ProtocolHandler,
                     processor = recycledProcessors.poll();
                 }
                 if (processor == null) {
-                    processor = createProcessor();
+                    processor = createProcessor(); // HTTP11NIOProce
                 }
 
                 initSsl(wrapper, processor);
@@ -631,6 +628,11 @@ public abstract class AbstractProtocol<S> implements ProtocolHandler,
                         // Don't do this for Comet we need to generate an end
                         // event (see BZ 54022)
                     } else if (processor.isAsync() || state == SocketState.ASYNC_END) {
+                        // 要么Tomcat线程还没结束，业务线程就已经调用过complete方法了，然后利用while走到这个分支
+                        // 要么Tomcat线程结束后，在超时时间内业务线程调用complete方法，然后构造一个新的SocketProcessor对象扔到线程池里走到这个分支
+                        // 要么Tomcat线程结束后，超过超时时间了，由AsyncTimeout线程来构造一个SocketProcessor对象扔到线程池里走到这个分支
+                        // 不管怎么样，在整个调用异步servlet的流程中，此分支只经历一次，用来将output缓冲区中的内容发送出去
+
                         state = processor.asyncDispatch(status);
                         if (state == SocketState.OPEN) {
                             // release() won't get called so in case this request
@@ -656,7 +658,15 @@ public abstract class AbstractProtocol<S> implements ProtocolHandler,
                         state = processor.process(wrapper);
                     }
 
-                    if (processor.isAsync()) {
+                    if (state != SocketState.CLOSED && processor.isAsync()) {
+                        // 代码执行到这里，就去判断一下之前有没有调用过complete方法
+                        // 如果调用，那么当前的AsyncState就会从COMPLETE_PENDING-->调用doComplete方法改为COMPLETING，SocketState为ASYNC_END
+                        // 如果没有调用，那么当前的AsyncState就会从STARTING-->STARTED，SocketState为LONG
+                        //
+                        // 状态转换，有三种情况
+                        // 1. COMPLETE_PENDING--->COMPLETING，COMPLETE_PENDING是在调用complete方法时候由STARTING改变过来的
+                        // 2. STARTING---->STARTED，STARTED的下一个状态需要有complete方法来改变，会改成COMPLETING
+                        // 3. COMPLETING---->DISPATCHED
                         state = processor.asyncPostProcess();
                     }
 
@@ -695,6 +705,7 @@ public abstract class AbstractProtocol<S> implements ProtocolHandler,
                                 "], Status in: [" + status +
                                 "], State out: [" + state + "]");
                     }
+                    // 如果在访问异步servlet时，代码执行到这里，已经调用过complete方法了，那么状态就是SocketState.ASYNC_END
                 } while (state == SocketState.ASYNC_END ||
                         state == SocketState.UPGRADING ||
                         state == SocketState.UPGRADING_TOMCAT);
@@ -729,12 +740,10 @@ public abstract class AbstractProtocol<S> implements ProtocolHandler,
                     }
                 } else {
                     // Connection closed. OK to recycle the processor. Upgrade
-                    // processors are not re-used but recycle is called to clear
-                    // references.
+                    // processors are not recycled.
                     connections.remove(socket);
                     if (processor.isUpgrade()) {
                         processor.getHttpUpgradeHandler().destroy();
-                        processor.recycle(true);
                     } else if (processor instanceof org.apache.coyote.http11.upgrade.UpgradeProcessor) {
                         // NO-OP
                     } else {
@@ -754,13 +763,7 @@ public abstract class AbstractProtocol<S> implements ProtocolHandler,
             // Future developers: if you discover any other
             // rare-but-nonfatal exceptions, catch them here, and log as
             // above.
-            catch (OutOfMemoryError oome) {
-                // Try and handle this here to give Tomcat a chance to close the
-                // connection and prevent clients waiting until they time out.
-                // Worst case, it isn't recoverable and the attempt at logging
-                // will trigger another OOME.
-                getLog().error(sm.getString("abstractConnectionHandler.oome"), oome);
-            } catch (Throwable e) {
+            catch (Throwable e) {
                 ExceptionUtils.handleThrowable(e);
                 // any other exception or error is odd. Here we log it
                 // with "ERROR" level, so it will show up even on
@@ -801,16 +804,7 @@ public abstract class AbstractProtocol<S> implements ProtocolHandler,
         protected abstract void release(SocketWrapper<S> socket,
                 Processor<S> processor, boolean socketClosing,
                 boolean addToPoller);
-
         /**
-         * Create an instance of an HTTP upgrade processor.
-         *
-         * @param socket    The socket associated with the connection to upgrade
-         * @param inbound   Listener to which data available events should be
-         *                  passed
-         * @return  A Processor instance for the upgraded connection
-         * @throws IOException if an I/O error occurred during the creation of
-         *                     the Processor
          * @deprecated  Will be removed in Tomcat 8.0.x.
          */
         @Deprecated
@@ -836,7 +830,7 @@ public abstract class AbstractProtocol<S> implements ProtocolHandler,
                                 ",name=" + getProtocol().getProtocolName() +
                                 "Request" + count);
                         if (getLog().isDebugEnabled()) {
-                            getLog().debug("Register [" + processor + "] as [" + rpName + "]");
+                            getLog().debug("Register " + rpName);
                         }
                         Registry.getRegistry(null, null).registerComponent(rp,
                                 rpName, null);
