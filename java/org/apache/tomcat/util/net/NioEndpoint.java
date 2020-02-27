@@ -1236,7 +1236,7 @@ public class NioEndpoint extends AbstractEndpoint<NioChannel> {
                         break;
                     } else {
                         // 执行PollerEvent事件，向Selector注册读写事件
-                        hasEvents = events();
+                        hasEvents = events(); // 真正的向selector注册
                     }
                     try {
                         if ( !close ) {
@@ -1341,7 +1341,7 @@ public class NioEndpoint extends AbstractEndpoint<NioChannel> {
                             processSendfile(sk,attachment, false);
                         } else {
                             if ( isWorkerAvailable() ) {
-                                unreg(sk, attachment, sk.readyOps());
+                                unreg(sk, attachment, sk.readyOps()); //
                                 boolean closeSocket = false;
                                 // Read goes before write
                                 if (sk.isReadable()) {

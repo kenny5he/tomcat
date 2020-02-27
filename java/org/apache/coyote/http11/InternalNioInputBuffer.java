@@ -465,6 +465,7 @@ public class InternalNioInputBuffer extends AbstractInputBuffer<NioChannel> {
                 if (att == null) {
                     throw new IOException("Key must be cancelled.");
                 }
+                // socket. selector
                 nRead = pool.read(socket.getBufHandler().getReadBuffer(),
                         socket, selector, att.getTimeout());
             } catch ( EOFException eof ) {
