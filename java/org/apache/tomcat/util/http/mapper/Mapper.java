@@ -806,7 +806,7 @@ public final class Mapper {
                 return;
             }
         }
-        mappingData.host = mappedHost.object;       // 找到了对应的host
+        mappingData.host = mappedHost.object;       // 找到了对应的Standerhost
 
         // Context mapping
         ContextList contextList = mappedHost.contextList;
@@ -914,7 +914,7 @@ public final class Mapper {
         Wrapper[] exactWrappers = contextVersion.exactWrappers;
         internalMapExactWrapper(exactWrappers, path, mappingData);
 
-        // Rule 2 -- Prefix Match 前缀匹配
+        // Rule 2 -- Prefix Match 前缀匹配 *.jar
         boolean checkJspWelcomeFiles = false;
         Wrapper[] wildcardWrappers = contextVersion.wildcardWrappers;
         if (mappingData.wrapper == null) {
@@ -953,7 +953,7 @@ public final class Mapper {
             return;
         }
 
-        // Rule 3 -- Extension Match
+        // Rule 3 -- Extension Match /123123/*
         Wrapper[] extensionWrappers = contextVersion.extensionWrappers;
         if (mappingData.wrapper == null && !checkJspWelcomeFiles) {
             internalMapExtensionWrapper(extensionWrappers, path, mappingData,
