@@ -174,7 +174,7 @@ public class Http11Protocol extends AbstractHttp11JsseProtocol<Socket> {
             processor.setConnectionUploadTimeout(proto.getConnectionUploadTimeout());
             processor.setDisableUploadTimeout(proto.getDisableUploadTimeout());
             processor.setCompressionMinSize(proto.getCompressionMinSize());
-            processor.setNoCompressionStrongETag(proto.getNoCompressionStrongETag());
+            // processor.setNoCompressionStrongETag(proto.getNoCompressionStrongETag());
             processor.setCompression(proto.getCompression());
             processor.setNoCompressionUserAgents(proto.getNoCompressionUserAgents());
             processor.setCompressableMimeTypes(proto.getCompressableMimeTypes());

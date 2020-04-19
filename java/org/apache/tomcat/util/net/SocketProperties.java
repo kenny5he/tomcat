@@ -178,6 +178,7 @@ public class SocketProperties {
             socket.setSendBufferSize(txBufSize.intValue());
         if (ooBInline !=null)
             socket.setOOBInline(ooBInline.booleanValue());
+        // soKeepAlive
         if (soKeepAlive != null)
             socket.setKeepAlive(soKeepAlive.booleanValue());
         if (performanceConnectionTime != null && performanceLatency != null &&
@@ -191,6 +192,7 @@ public class SocketProperties {
         if (soLingerOn != null && soLingerTime != null)
             socket.setSoLinger(soLingerOn.booleanValue(),
                     soLingerTime.intValue());
+        // soTimeout
         if (soTimeout != null && soTimeout.intValue() >= 0)
             socket.setSoTimeout(soTimeout.intValue());
         if (tcpNoDelay != null) {

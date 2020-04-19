@@ -126,6 +126,12 @@ public class JIoEndpoint extends AbstractEndpoint<Socket> {
      * thread local fields.
      */
     public interface Handler extends AbstractEndpoint.Handler {
+        /**
+         *  Http11ConnectionHandler 抽象父类 AbstractConnectionHandler 统一处理 process，并调用抽象方法 createProcessor 创建请求处理器
+         * @param socket
+         * @param status 表示应该读数据还是应该写数据
+         * @return state表示处理完socket后socket的状态
+         */
         public SocketState process(SocketWrapper<Socket> socket,
                 SocketStatus status);
         public SSLImplementation getSslImplementation();
@@ -222,7 +228,7 @@ public class JIoEndpoint extends AbstractEndpoint<Socket> {
                         // bio socket
                         // 此处是阻塞的，那么running属性就算已经被改成false，那么怎么进入到下一次循环呢？
                         socket = serverSocketFactory.acceptSocket(serverSocket);//
-                        System.out.println("接收到了一个socket连接");
+                        log.info("接收到了一个socket连接");
 
                     } catch (IOException ioe) {
                         countDownConnection();
@@ -236,11 +242,13 @@ public class JIoEndpoint extends AbstractEndpoint<Socket> {
 
                     // Configure the socket
                     // 如果Endpoint正在运行并且没有被暂停，那么就处理该socket
+                    // 为Socket 设置参数配置，比如超时时间，keep-alive等
                     if (running && !paused && setSocketOptions(socket)) {
                         // Hand this socket off to an appropriate processor
                         // socket被正常的交给了线程池，processSocket就会返回true
                         // 如果没有被交给线程池或者中途Endpoint被停止了，则返回false
                         // 返回false则关闭该socket
+                        // 处理 Socket请求
                         if (!processSocket(socket)) {
                             countDownConnection();
                             // Close socket right away
@@ -552,7 +560,7 @@ public class JIoEndpoint extends AbstractEndpoint<Socket> {
                 return false;
             }
             // bio， 一个socket连接对应一个线程
-            // 一个http请求对应一个线程？
+            // 一个http请求对应一个线程
             getExecutor().execute(new SocketProcessor(wrapper));
         } catch (RejectedExecutionException x) {
             log.warn("Socket processing request was rejected for:"+socket,x);
